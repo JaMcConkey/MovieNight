@@ -42,9 +42,10 @@ async def sync(ctx):
 
 @bot.slash_command()
 async def set_host(interaction: discord.Interaction, user: discord.Member):
-    guild_id = str(interaction.guild_id)  # Get the guild ID
+    guild_id = str(interaction.guild_id) 
 
-    # Validate if the user is in the guild
+    # Double check user is in guild
+    #TODO Should we make sure they are also a picker? Also add a confirm to swap hosts
     if user not in interaction.guild.members:
         await interaction.response.send_message("User is not in the guild.", ephemeral=True)
         return
@@ -56,7 +57,7 @@ async def set_host(interaction: discord.Interaction, user: discord.Member):
 async def on_ready():
     populate_server_data()
     await create_message()
-# Function to fetch multiple movie details from TMDb
+# Get's movies where the user can cycle through to pick. 
 def get_movie_details(movie_name):
     url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_TOKEN}&query={movie_name}"
     response = requests.get(url)
@@ -80,7 +81,7 @@ async def create_message():
     else:
         print("Not proper channel")
 
-#Refresh the message
+#Updates the bots primary display message
 async def update_message():
     global cur_message
     if cur_message:
@@ -95,9 +96,9 @@ async def update_message():
         print("NO MESSAGE TO UPDATE???")
 
 def set_picked_movie(user,movie):
-    username = user.name
+    user_id = str(user.id)
     guild_id = str(user.guild.id)
-    database.set_user_picked_movie(username,movie,guild_id)
+    database.set_user_picked_movie(user_id,movie,guild_id,movie)
 
 
 # View class for movie interaction with pagination
@@ -178,7 +179,7 @@ async def pick_movie(ctx, *, movie_name):
 @bot.slash_command()
 async def join_movienight(ctx):
     guild_id = str(ctx.guild.id)  # Get the current server (guild) ID
-    user = ctx.author
+    user = ctx.author.id
     database.add_new_picker(user, guild_id)
     #TODO add message for failed to add
     await ctx.respond(f"Added new picker {user} to server {ctx.guild.name}")
