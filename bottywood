@@ -25,35 +25,49 @@ server_data = {}
 
 #Dic fields 
 #TODO Move to database
-channel_ID = 1282825012428144694 #hardset for 1 server, will change later
+#channel_ID = 1282825012428144694 #hardset for 1 server, will change later
 
 #TODO Create a cog for the commands if i'm ambitious
 
 @bot.event
 async def on_ready():
-    populate_server_data()
-    await create_message()
+    pass
+   # await create_message()
 
 def session_check():
     async def predicate(ctx):
         guild_id = str(ctx.guild.id)
-
-        if guild_id in server_data and server_data[guild_id]["cur_message"] is not None:
+        if database.session_exists(guild_id):
             return True
         else:
-            await ctx.respond("No active session. Please start a session first.", ephemeral=True)
+            await ctx.respond("No active session. Use the command !setup_movienight_bot_here .", ephemeral=True)
             return False
-
     return commands.check(predicate) 
 
-def populate_server_data():
-    for guild in bot.guilds:
-        server_data[guild.id] = {"cur_message": None,"cur_movie": None,"cur_host": None,"channel_ID": None}
+
 
 @bot.command()
 async def sync(ctx):
     # Sync commands with Discord
     await bot.sync_commands()
+
+@bot.command()
+async def setup_movienight_bot_here(ctx):
+    guild_id = str(ctx.guild.id)
+    if database.session_exists(guild_id):
+        await ctx.respond("A session already exists")
+        return
+    #If no session, create one with whoever called the command
+    guild_id = str(ctx.guild.id)
+    host_id = str(ctx.author.id)
+    channel_id = str(ctx.channel.id)
+    message = await ctx.send("Creating initial message here - This should dynamically update")
+    message_id = str(message.id)
+    database.update_or_create_session_data(guild_id,host_id,channel_id,message_id)
+@bot.command()
+async def clear_session(ctx):
+    if database.session_exists(str(ctx.guild.id)):
+        database.remove_session_data(str(ctx.guild.id))
 
 @bot.slash_command()
 @session_check()
@@ -81,9 +95,10 @@ def get_movie_details(movie_name):
             return data['results']
     return None
 
+#DEFUNCT?
 async def create_message():
     global cur_message
-    channel = bot.get_channel(channel_ID) #TODO Stop hard setting here
+    channel = bot.get_channel(DEFUNCT) #TODO Stop hard setting here
     if isinstance(channel, discord.TextChannel):
         embed = discord.Embed(
             title="Hosted by @Adoom",
@@ -94,19 +109,87 @@ async def create_message():
     else:
         print("Not proper channel")
 
+async def get_user_name_from_id(user_id, guild_id):
+    guild = bot.get_guild(int(guild_id))
+    if guild:
+        member = guild.get_member(int(user_id))
+        if member:
+            print("HAVE MEMBER")
+            return member.display_name 
+        member = await guild.fetch_member(user_id)
+        return member.display_name 
+    print("NO GUILD?")
+    return None
 #Updates the bots primary display message
-async def update_message():
-    global cur_message
-    if cur_message:
+async def update_message(guild_id):
+    if not database.session_exists(guild_id):
+        print("Tried to call update_message without a session - Why")
+        return
+    host_id, channel_id, message_id = database.get_session_data(guild_id)
+    channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
+    if channel == None:
+        print("NO CHannel??")
+    message = await channel.fetch_message(message_id)
+    if message:
+        host_name = bot.get_user(host_id)
         new_embed = discord.Embed(
-            title='Updated title',
-            description='Updated description',
+            title= f'Your host is:  {host_name}',
+            description='',
             color=discord.Color.blue()
         )
-        new_embed.add_field(name="Next Movie Picker", value='USERNAME')
-        await cur_message.edit(embed=new_embed)  # Edit the existing message
+        ###Get the last to pick, if they haven't picked there's a different message
+        cur_pick_user_id,picked_movie = database.get_last_active_picker(guild_id)
+        if picked_movie:
+            val = f"The movie will be ___ {picked_movie} - Picked by {await get_user_name_from_id(cur_pick_user_id,guild_id)}.___ - WILL HIDE THIS LATER UNTIL THE HOST LOCKS IT IN"
+        else:
+            val = f"FUCKO {await get_user_name_from_id(cur_pick_user_id,guild_id)} HASN'T PICKED YET"
+        
+        new_embed.add_field(
+            name="__The next movie will be__",
+            value=val,
+            inline=False
+        )
+        new_embed.add_field(name="User", value="Fetching...", inline=True)
+        new_embed.add_field(name="Last Pick", value="Fetching...", inline=True)
+        new_embed.add_field(name="Status", value="Fetching...", inline=True)
+        user_field = ""
+        pick_field = ""
+        status_field = ""
+        for data in database.get_pickers(10,guild_id):
+            user_id, last_pick_date, current_movie,status = data
+            #Note: this returns status as a string, so we'll check for that
+            #1 = user, 2 = Last Pick, 3 = Status   
+            if status != "True":
+                continue
+            user_field += f"{await get_user_name_from_id(user_id,guild_id)}\n"
+            pick_field += f"{last_pick_date}\n"
+            if current_movie != None or "":
+                status_field += f"{current_movie}\n"
+            else:
+                status_field += "FUCKO HASN'T PICKED \n" 
+                
+        new_embed.set_field_at(
+            1,
+            name="User",
+            value=user_field,
+        )
+        new_embed.set_field_at(
+            2,
+            name="Last Pick",
+            value=pick_field,
+        )
+        new_embed.set_field_at(
+            3,
+            name="Status",
+            value=status_field,
+        )
+        await message.edit(embed=new_embed)  # Edit the existing message
     else:
         print("NO MESSAGE TO UPDATE???")
+
+def get_next_movie(guild_id):
+    """returns the movie picked by the last to pick"""
+    user_id,picked_movie = database.get_last_active_picker(guild_id)
 
 def set_picked_movie(user,movie):
     user_id = str(user.id)
@@ -162,6 +245,7 @@ class MovieView(View):
         if interaction.user == self.user:
             movie = self.movies[self.index]
             if set_picked_movie(interaction.user,movie['title']):
+                await update_message(str(interaction.user.guild.id))
                 await interaction.response.send_message(f"Selected '{movie['title']}' ", ephemeral=True)
             else:
                 await interaction.response.send_message(f"Failed to select '{movie['title']}, #TODO - Add error codes' ", ephemeral=True)

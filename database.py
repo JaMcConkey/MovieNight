@@ -159,9 +159,10 @@ def check_if_watched(movie_name, guild_id):
 
 # Get the last active picker by user_id
 def get_last_active_picker(guild_id):
+    """returns user_id, current_movie_picked"""
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
-        c.execute("""SELECT user_id FROM users
+        c.execute("""SELECT user_id, current_movie_picked FROM users
                   WHERE active_picker = "True" AND guild_id = ?
                   ORDER BY last_date_picked DESC
                   LIMIT 1
@@ -175,7 +176,7 @@ def get_last_active_picker(guild_id):
 
 # Get a list of pickers and their details by user_id
 def get_pickers(amount, guild_id):
-    """returns user_id, last pick date, current movie, and if they are active"""
+    """returns user_id, last pick date, current movie, and if they are active - Sorted by last to pick"""
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
         c.execute("""--sql
@@ -183,12 +184,12 @@ def get_pickers(amount, guild_id):
                   WHERE guild_id = ?
                   ORDER BY last_date_picked DESC
                   LIMIT ?
-                  """, (amount, guild_id,))
+                  """, (guild_id, amount,))
         picker_data = c.fetchall()
         return picker_data 
 
 ### Session functions
-def update_session_data(guild_id, host_id, channel_id, message_id):
+def update_or_create_session_data(guild_id, host_id, channel_id, message_id):
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
         c.execute("""--sql
@@ -221,4 +222,3 @@ def session_exists(guild_id):
         """, (guild_id,))
         
         return c.fetchone() is not None
-create_table()
