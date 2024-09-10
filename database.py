@@ -14,7 +14,7 @@ def create_table():
                 current_movie_picked TEXT,
                 active_picker TEXT NOT NULL,
                 guild_id TEXT NOT NULL,  -- server ID
-                PRIMARY KEY (user_id, guild_id)  -- Unique per guild - Prevent duplicate users in the same guild
+                PRIMARY KEY (user_id, guild_id)  
             )
         """)
 
@@ -29,10 +29,19 @@ def create_table():
                 FOREIGN KEY (picked_by_user, guild_id) REFERENCES users(user_id, guild_id)
             )
         """)
+        c.execute("""--sql
+            CREATE TABLE IF NOT EXISTS session (
+                guild_id TEXT NOT NULL,
+                host_id TEXT,  
+                channel_id TEXT, --We'll try reusing the same channel and message on restarts and keep it updated
+                message_id TEXT,  
+                PRIMARY KEY (guild_id)
+            )
+        """);
 
-# Passing in a member object, extract the user_id
+# Pass in the member ID- Not the member itself
 def add_new_picker(member, guild_id):
-    user_id = str(member.id)  # Use the unique user ID
+    user_id = str(member)  # Use the unique user ID
     guild_id = str(guild_id)
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
@@ -89,12 +98,13 @@ def set_user_picked_movie(user_id, guild_id, movie):
                     """, (movie, user_id, guild_id))
         if c.rowcount == 0:
             print("User not found while setting picked movie")
+            return False
         else:
             print(f"Updated picked movie for '{user_id}' to '{movie}'")
+            return True
 
 # Normalize status incase of capitalization typos, or allow "yes"
 def normalize_status(status):
-
     true_variations = {"true", "yes", "1"}
     false_variations = {"false", "no", "0"}
 
@@ -157,7 +167,7 @@ def get_last_active_picker(guild_id):
         if user:
             return user
         else:
-            print("No active users :()")
+            print("No active users :(")
             return None
 
 # Get a list of pickers and their details by user_id

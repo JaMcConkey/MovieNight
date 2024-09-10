@@ -25,7 +25,7 @@ server_data = {}
 
 #Dic fields 
 #TODO Move to database
-channel_ID = 1281240739249913947 #hardset for 1 server, will change later
+channel_ID = 1282825012428144694 #hardset for 1 server, will change later
 cur_movie = None
 cur_message = None #Message in this case is tracking the post/embed
 cur_host = None
@@ -98,7 +98,7 @@ async def update_message():
 def set_picked_movie(user,movie):
     user_id = str(user.id)
     guild_id = str(user.guild.id)
-    database.set_user_picked_movie(user_id,movie,guild_id,movie)
+    return database.set_user_picked_movie(user_id,guild_id,movie)
 
 
 # View class for movie interaction with pagination
@@ -148,9 +148,10 @@ class MovieView(View):
         """Picks the current movie."""
         if interaction.user == self.user:
             movie = self.movies[self.index]
-            set_picked_movie(interaction.user,movie['title'])
-            await interaction.response.send_message(f"Selected '{movie['title']}' ", ephemeral=True)
-
+            if set_picked_movie(interaction.user,movie['title']):
+                await interaction.response.send_message(f"Selected '{movie['title']}' ", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"Failed to select '{movie['title']}, #TODO - Add error codes' ", ephemeral=True)
 
 ###COMMANDS###
 # Send a list of movies to choose from
@@ -185,20 +186,30 @@ async def join_movienight(ctx):
     await ctx.respond(f"Added new picker {user} to server {ctx.guild.name}")
 
 @bot.slash_command()
-async def i_hate_my_friends():
+async def i_hate_my_friends(ctx):
+    guild_id = str(ctx.guild.id)  # Get the current server (guild) ID
+    user = str(ctx.author.id)
+    database.update_user_status(user,guild_id,"false")
+    await ctx.respond(f"Set {ctx.authoer} pick status to false. IF THIS ISNT YOU SOMETHING FUCKED UP")
+
     ###This function will set you to inactive
     pass
 @bot.slash_command()
-async def join_the_friends():
+async def i_like_my_friends(ctx):
     ###This function will set you to active
+    guild_id = str(ctx.guild.id)  # Get the current server (guild) ID
+    user = str(ctx.author.id)
+    database.update_user_status(user,guild_id,"true")
+    await ctx.respond(f"Set {ctx.authoer} pick status to true. IF THIS ISNT YOU SOMETHING FUCKED UP")
+
     pass
 
 @bot.slash_command()
-async def lock_it_in():
+async def lock_it_in(ctx):
     ###This is to set lock in the current movie - Only reason function is so you /watched to commit it and reveal the movie
     pass
 @bot.slash_command()
-async def watched():
+async def watched(ctx):
     ### Commits the locked in movie to watched
     pass
 
