@@ -125,7 +125,7 @@ def normalize_status(status):
 def add_watched_movie(movie_name, picked_by_user, date_watched, guild_id):
     if check_if_watched(movie_name, guild_id):
         print("Movie was already watched - ###INSERT DATE###")
-        return
+        return False
 
     # Ensure the date is in the correct format
     if isinstance(date_watched, datetime):
@@ -148,9 +148,12 @@ def add_watched_movie(movie_name, picked_by_user, date_watched, guild_id):
 
 # Check if a movie has been watched in a specific guild
 def check_if_watched(movie_name, guild_id):
+    """returns movie_name,"""
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
-        c.execute("SELECT 1 FROM watched_movies WHERE movie_name = ? AND guild_id = ?", (movie_name, guild_id))
+        c.execute("""SELECT movie_name, picked_by_user, date_watched
+                   FROM watched_movies WHERE movie_name = ? AND guild_id = ?
+                  """, (movie_name, guild_id))
         details = c.fetchone()
         if details:
             return True, details
