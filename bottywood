@@ -95,20 +95,6 @@ def get_movie_details(movie_name):
             return data['results']
     return None
 
-#DEFUNCT?
-async def create_message():
-    global cur_message
-    channel = bot.get_channel(DEFUNCT) #TODO Stop hard setting here
-    if isinstance(channel, discord.TextChannel):
-        embed = discord.Embed(
-            title="Hosted by @Adoom",
-            author={"name": "Movie Night Bot"}
-
-)
-        #cur_message = await channel.send(embed=embed)
-    else:
-        print("Not proper channel")
-
 async def get_user_name_from_id(user_id, guild_id):
     guild = bot.get_guild(int(guild_id))
     if guild:
@@ -305,7 +291,7 @@ async def i_like_my_friends(ctx):
 
     pass
 
-@bot.slash_command()
+@bot.slash_command()    
 @session_check()
 async def lock_it_in(ctx):
     ###This is to set lock in the current movie - Only reason function is so you /watched to commit it and reveal the movie
