@@ -105,9 +105,12 @@ def set_user_picked_movie(user_id, guild_id, movie):
 
 # Normalize status incase of capitalization typos, or allow "yes"
 def normalize_status(status):
+    """takes a string of true/false,yes/no,1/0 or a bool"""
     true_variations = {"true", "yes", "1"}
     false_variations = {"false", "no", "0"}
-
+    #If we pass in a bool it will convert it
+    if isinstance(status, bool):
+        return "True" if status else "False"
     # Set to lowercase
     status_lower = status.strip().lower()
 
@@ -182,4 +185,40 @@ def get_pickers(amount, guild_id):
                   LIMIT ?
                   """, (amount, guild_id,))
         picker_data = c.fetchall()
-        return picker_data
+        return picker_data 
+
+### Session functions
+def update_session_data(guild_id, host_id, channel_id, message_id):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        c.execute("""--sql
+            INSERT INTO session (guild_id, host_id, channel_id, message_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(guild_id) DO UPDATE SET
+                host_id = excluded.host_id,
+                channel_id = excluded.channel_id,
+                message_id = excluded.message_id
+        """, (guild_id, host_id, channel_id, message_id))
+        conn.commit()
+def get_session_data(guild_id):
+    """returns host_id, channel_id, message_id"""
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        c.execute("SELECT host_id, channel_id, message_id FROM session WHERE guild_id = ?", (guild_id,))
+        return c.fetchone()
+def remove_session_data(guild_id):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM session WHERE guild_id = ?", (guild_id,))
+        conn.commit()
+
+def session_exists(guild_id):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        
+        c.execute("""--sql
+            SELECT 1 FROM session WHERE guild_id = ?
+        """, (guild_id,))
+        
+        return c.fetchone() is not None
+create_table()

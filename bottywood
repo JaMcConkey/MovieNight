@@ -26,10 +26,25 @@ server_data = {}
 #Dic fields 
 #TODO Move to database
 channel_ID = 1282825012428144694 #hardset for 1 server, will change later
-cur_movie = None
-cur_message = None #Message in this case is tracking the post/embed
-cur_host = None
 
+#TODO Create a cog for the commands if i'm ambitious
+
+@bot.event
+async def on_ready():
+    populate_server_data()
+    await create_message()
+
+def session_check():
+    async def predicate(ctx):
+        guild_id = str(ctx.guild.id)
+
+        if guild_id in server_data and server_data[guild_id]["cur_message"] is not None:
+            return True
+        else:
+            await ctx.respond("No active session. Please start a session first.", ephemeral=True)
+            return False
+
+    return commands.check(predicate) 
 
 def populate_server_data():
     for guild in bot.guilds:
@@ -41,6 +56,7 @@ async def sync(ctx):
     await bot.sync_commands()
 
 @bot.slash_command()
+@session_check()
 async def set_host(interaction: discord.Interaction, user: discord.Member):
     guild_id = str(interaction.guild_id) 
 
@@ -53,10 +69,6 @@ async def set_host(interaction: discord.Interaction, user: discord.Member):
         await update_message()
         await interaction.response.send_message("Udsfdsild.", ephemeral=True)
 
-@bot.event
-async def on_ready():
-    populate_server_data()
-    await create_message()
 # Get's movies where the user can cycle through to pick. 
 def get_movie_details(movie_name):
     url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_TOKEN}&query={movie_name}"
@@ -74,10 +86,11 @@ async def create_message():
     channel = bot.get_channel(channel_ID) #TODO Stop hard setting here
     if isinstance(channel, discord.TextChannel):
         embed = discord.Embed(
-            title='Host Goes Here',
-            color=discord.Color.green()
-        )
-        cur_message = await channel.send(embed=embed)
+            title="Hosted by @Adoom",
+            author={"name": "Movie Night Bot"}
+
+)
+        #cur_message = await channel.send(embed=embed)
     else:
         print("Not proper channel")
 
@@ -156,6 +169,7 @@ class MovieView(View):
 ###COMMANDS###
 # Send a list of movies to choose from
 @bot.slash_command()
+@session_check()
 async def pick_movie(ctx, *, movie_name):
     movies = get_movie_details(movie_name)
     
@@ -178,6 +192,7 @@ async def pick_movie(ctx, *, movie_name):
     else:
         await ctx.respond("Movie not found. Please try again.", ephemeral=True)
 @bot.slash_command()
+@session_check()
 async def join_movienight(ctx):
     guild_id = str(ctx.guild.id)  # Get the current server (guild) ID
     user = ctx.author.id
@@ -186,6 +201,7 @@ async def join_movienight(ctx):
     await ctx.respond(f"Added new picker {user} to server {ctx.guild.name}")
 
 @bot.slash_command()
+@session_check()
 async def i_hate_my_friends(ctx):
     guild_id = str(ctx.guild.id)  # Get the current server (guild) ID
     user = str(ctx.author.id)
@@ -195,6 +211,7 @@ async def i_hate_my_friends(ctx):
     ###This function will set you to inactive
     pass
 @bot.slash_command()
+@session_check()
 async def i_like_my_friends(ctx):
     ###This function will set you to active
     guild_id = str(ctx.guild.id)  # Get the current server (guild) ID
@@ -205,10 +222,12 @@ async def i_like_my_friends(ctx):
     pass
 
 @bot.slash_command()
+@session_check()
 async def lock_it_in(ctx):
     ###This is to set lock in the current movie - Only reason function is so you /watched to commit it and reveal the movie
     pass
 @bot.slash_command()
+@session_check()
 async def watched(ctx):
     ### Commits the locked in movie to watched
     pass
@@ -221,7 +240,7 @@ async def test_command(ctx,*,username):
         await ctx.respond("USER EXISTS")
     else:
         await ctx.respond("DOES NOT EXIST")
-    
+
 
 bot.run(TOKEN)
 
