@@ -34,7 +34,8 @@ def create_table():
                 guild_id TEXT NOT NULL,
                 host_id TEXT,  
                 channel_id TEXT, --We'll try reusing the same channel and message on restarts and keep it updated
-                message_id TEXT,  
+                message_id TEXT,
+                movie_locked_in TEXT  
                 PRIMARY KEY (guild_id)
             )
         """);
@@ -63,8 +64,9 @@ def check_user_exists(user_id, guild_id):
         c.execute("SELECT 1 FROM users WHERE user_id = ? AND guild_id = ?", (user_id, guild_id))
         return c.fetchone() is not None
 
-# Update user's status using their user_id
+# Updates users active status
 def update_user_status(user_id, guild_id, status):
+    """updates the users active status"""
     try:
         normalized_status = normalize_status(status)
 
@@ -145,7 +147,7 @@ def add_watched_movie(movie_name, picked_by_user, date_watched, guild_id):
                      VALUES (?, ?, ?, ?)""", (movie_name, picked_by_user, date_watched, guild_id))
         print(f"Added new watched movie to DB for guild {guild_id}")
         conn.commit()
-
+    return True
 # Check if a movie has been watched in a specific guild
 def check_if_watched(movie_name, guild_id):
     """returns movie_name,"""
@@ -192,6 +194,20 @@ def get_pickers(amount, guild_id):
         return picker_data 
 
 ### Session functions
+def toggle_session_lockin(guild_id, bool_val):
+    if not session_exists(guild_id):
+        print("No session exists")
+        return False
+    val = normalize_status(bool_val)
+    with sqlite3.connect('movienight.db') as conn:   
+        c = conn.cursor()
+        c.execute("""--sql
+            UPDATE session
+            SET movie_locked_in = ?
+            WHERE guild_id = ?
+        """, (val, guild_id))
+        conn.commit()
+    return True
 def update_or_create_session_data(guild_id, host_id, channel_id, message_id):
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
@@ -205,10 +221,10 @@ def update_or_create_session_data(guild_id, host_id, channel_id, message_id):
         """, (guild_id, host_id, channel_id, message_id))
         conn.commit()
 def get_session_data(guild_id):
-    """returns host_id, channel_id, message_id"""
+    """returns host_id, channel_id, message_id,lock_in_status"""
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
-        c.execute("SELECT host_id, channel_id, message_id FROM session WHERE guild_id = ?", (guild_id,))
+        c.execute("SELECT host_id, channel_id, message_id, movie_locked_in FROM session WHERE guild_id = ?", (guild_id,))
         return c.fetchone()
 def remove_session_data(guild_id):
     with sqlite3.connect('movienight.db') as conn:

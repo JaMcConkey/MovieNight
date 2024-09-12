@@ -2,6 +2,7 @@ import os
 import requests
 import discord
 import database
+from datetime import datetime
 from discord.ext import commands, tasks
 from discord.ui import View, Button
 
@@ -21,6 +22,84 @@ intents.members = True
 
 bot = commands.Bot(command_prefix=bot_prefix, intents=intents)
 
+
+############### EXTRA CLASSES - TODO: MOVE OUT OF HERE
+
+# View class, multiple pages
+class MovieView(View):
+    def __init__(self, movies, user):
+        super().__init__(timeout=60) 
+        self.movies = movies
+        self.index = 0  
+        self.user = user 
+
+    async def update_embed(self, interaction):
+        """Update the embed with the current movie details."""
+        movie = self.movies[self.index]
+        embed = discord.Embed(
+            title=movie['title'],
+            description=movie['overview'],
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="Release Date", value=movie['release_date'], inline=True)
+        embed.add_field(name="Rating", value=movie['vote_average'], inline=True)
+        
+        if movie['poster_path']:
+            poster_url = f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
+            embed.set_image(url=poster_url)
+
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
+    async def previous_movie(self, button: Button, interaction: discord.Interaction):
+        """Go to the previous movie."""
+        if interaction.user == self.user:
+            self.index = (self.index - 1) % len(self.movies)  # % to ensure wrap around
+            await self.update_embed(interaction)
+
+
+    @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
+    async def next_movie(self, button: Button, interaction: discord.Interaction):
+        """Go to the next movie."""
+        if interaction.user == self.user:
+            self.index = (self.index + 1) % len(self.movies)  
+            await self.update_embed(interaction)
+
+
+    @discord.ui.button(label="Pick", style=discord.ButtonStyle.success)
+    async def register_movie(self, button: Button, interaction: discord.Interaction):
+        """Picks the current movie."""
+        if interaction.user == self.user:
+            movie = self.movies[self.index]
+            if set_picked_movie(interaction.user,movie['title']):
+                await update_message(str(interaction.user.guild.id))
+                await interaction.response.send_message(f"Selected '{movie['title']}' ", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"Failed to select '{movie['title']}, #TODO - Add error codes' ", ephemeral=True)
+
+class ConfirmManualAdd(View):
+    def __init__(self, movie_name, picker_id, date_watched, guild_id):
+        super().__init__(timeout=60)  # Do I need a timeout? 
+        self.movie_name = movie_name
+        self.picker_id = picker_id
+        self.date_watched = date_watched
+        self.guild_id = guild_id
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
+    async def confirm_button(self, button: Button, interaction: discord.Interaction):
+        if database.check_if_watched(self.movie_name,self.guild_id):
+            await interaction.response.send_message(f"We already watched this")
+        else:
+            if database.add_watched_movie(self.movie_name, self.picker_id, self.date_watched, self.guild_id):
+                await interaction.response.send_message(f"Movie '{self.movie_name}' added successfully!", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"Failed to add movie ({self.movie_name}) - CHECK WHY")
+        self.stop() 
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
+    async def cancel_button(self, button: Button, interaction: discord.Interaction):
+        await interaction.response.send_message("Aborted addding movie, like SOMEONE should have been", ephemeral=True)
+        self.stop()  
 
 #TODO Create a cog for the commands if i'm ambitious
 #TODO - BIG MAYBE - SWAP everything to movie ID from MovieDB?
@@ -120,7 +199,9 @@ async def update_message(guild_id):
         )
 #Get the last to pick, if they haven't picked there's a different message
         cur_pick_user_id,picked_movie = database.get_last_active_picker(guild_id)
-        if picked_movie:
+        if cur_pick_user_id == None:
+            val =f"Noone is picking movies. Why do I exist"
+        elif picked_movie:
             val = f"The movie will be ___ {picked_movie} - Picked by {await get_user_name_from_id(cur_pick_user_id,guild_id)}.___ - WILL HIDE THIS LATER UNTIL THE HOST LOCKS IT IN"
         else:
             val = f"FUCKO {await get_user_name_from_id(cur_pick_user_id,guild_id)} HASN'T PICKED YET"
@@ -235,11 +316,35 @@ async def i_like_my_friends(ctx):
 @session_check()
 async def lock_it_in(ctx):
     ###This is to set lock in the current movie - Only reason function is so you /watched to commit it and reveal the movie
-    pass
+    host_id, channel_id, message_id,lock_in_status = database.get_session_data(ctx.guild.id)
+    if database.get_last_active_picker != None:    
+        database.toggle_session_lockin(ctx.guild.id,"true")
+
+    
 @bot.slash_command()
 @session_check()
 async def watched(ctx):
+    host_id, channel_id, message_id,lock_in_status = database.get_session_data(ctx.guild.id)
+    if lock_in_status == "true":
+        picker = database.get_last_active_picker(ctx.guild.id)
+        database.set_user_picked_movie()
     ### Commits the locked in movie to watched
+    pass
+@bot.slash_command()
+@session_check()
+async def cancel_lock_in(ctx):
+    host_id, channel_id, message_id,lock_in_status = database.get_session_data(ctx.guild.id)
+    #We can only bail if we're locked in.
+    if not lock_in_status == "true":
+        return
+    database.toggle_session_lockin(ctx.guild.id,"false")
+    last_picker = database.get_last_active_picker(ctx.guild.id)
+    #If there was a picker lets set them to not active, then update the message
+    if last_picker != None:
+        database.update_user_status(last_picker,ctx.guild.id,"false")
+    update_message(ctx.guild.id)
+
+    ###Bails out if locked in and sets user to inactive
     pass
 
 ########################TO REMOVE COMMANDS- FOR DEBUGGING################
@@ -253,84 +358,25 @@ async def test_command(ctx,*,username):
 
 @bot.slash_command()
 @session_check()
-async def manual_add_movie(ctx, movie_name,date_watched,picked_by_user):
+async def manual_add_movie(ctx, movie_name,date_watched,picked_by_user : discord.Member):
     guild_id = str(ctx.guild.id)
-    user_id = str()
+    picked_by_user = str(picked_by_user.id)
+    try:
+        # Convert date_watched string to a datetime object
+        date_watched_obj = datetime.strptime(date_watched, '%Y-%m-%d')
+
+        # Create the confirmation view
+        view = ConfirmManualAdd(movie_name, picked_by_user, date_watched_obj, guild_id)
+
+        # Send a message with the confirmation view
+        await ctx.respond(
+            f"Are you sure you want to add '{movie_name}' as watched on {date_watched}?",
+            view=view,
+            ephemeral=True
+        )
+    except ValueError:
+        await ctx.respond("Invalid date format. Use YYYY-MM-DD.", ephemeral=True)
+    except Exception as e:
+        await ctx.respond(f"An exception occurred - Possibly Database related?: {str(e)}", ephemeral=True)
 
 bot.run(TOKEN)
-
-############### EXTRA CLASSES - TODO: MOVE OUT OF HERE
-
-# View class, multiple pages
-class MovieView(View):
-    def __init__(self, movies, user):
-        super().__init__(timeout=60) 
-        self.movies = movies
-        self.index = 0  
-        self.user = user 
-
-    async def update_embed(self, interaction):
-        """Update the embed with the current movie details."""
-        movie = self.movies[self.index]
-        embed = discord.Embed(
-            title=movie['title'],
-            description=movie['overview'],
-            color=discord.Color.blue()
-        )
-        embed.add_field(name="Release Date", value=movie['release_date'], inline=True)
-        embed.add_field(name="Rating", value=movie['vote_average'], inline=True)
-        
-        if movie['poster_path']:
-            poster_url = f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
-            embed.set_image(url=poster_url)
-
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="Previous", style=discord.ButtonStyle.secondary)
-    async def previous_movie(self, button: Button, interaction: discord.Interaction):
-        """Go to the previous movie."""
-        if interaction.user == self.user:
-            self.index = (self.index - 1) % len(self.movies)  # % to ensure wrap around
-            await self.update_embed(interaction)
-
-
-    @discord.ui.button(label="Next", style=discord.ButtonStyle.primary)
-    async def next_movie(self, button: Button, interaction: discord.Interaction):
-        """Go to the next movie."""
-        if interaction.user == self.user:
-            self.index = (self.index + 1) % len(self.movies)  
-            await self.update_embed(interaction)
-
-
-    @discord.ui.button(label="Pick", style=discord.ButtonStyle.success)
-    async def register_movie(self, button: Button, interaction: discord.Interaction):
-        """Picks the current movie."""
-        if interaction.user == self.user:
-            movie = self.movies[self.index]
-            if set_picked_movie(interaction.user,movie['title']):
-                await update_message(str(interaction.user.guild.id))
-                await interaction.response.send_message(f"Selected '{movie['title']}' ", ephemeral=True)
-            else:
-                await interaction.response.send_message(f"Failed to select '{movie['title']}, #TODO - Add error codes' ", ephemeral=True)
-
-class ConfirmManualAdd(View):
-    def __init__(self, movie_name, user_id, date_watched, guild_id):
-        super().__init__(timeout=60)  # Do I need a timeout? 
-        self.movie_name = movie_name
-        self.user_id = user_id
-        self.date_watched = date_watched
-        self.guild_id = guild_id
-
-    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
-    async def confirm_button(self, button: Button, interaction: discord.Interaction):
-        if database.check_if_watched(self.movie_name,self.guild_id):
-            await interaction.response.send_message(f"We already watching this")
-        else:
-            database.add_watched_movie(self.movie_name, self.user_id, self.date_watched, self.guild_id)
-            await interaction.response.send_message(f"Movie '{self.movie_name}' added successfully!", ephemeral=True)
-            self.stop() 
-
-    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
-    async def cancel_button(self, button: Button, interaction: discord.Interaction):
-        await interaction.response.send_message("Movie addition canceled.", ephemeral=True)
-        self.stop()  
