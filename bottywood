@@ -25,6 +25,8 @@ bot = commands.Bot(command_prefix=bot_prefix, intents=intents)
 
 ############### EXTRA CLASSES - TODO: MOVE OUT OF HERE
 
+manual_pick_order = {}  # {guild_id: [user_id1, user_id2, ...]}
+
 # View class, multiple pages
 class MovieView(View):
     def __init__(self, movies, user):
@@ -185,24 +187,27 @@ async def update_message(guild_id):
     if not database.session_exists(guild_id):
         print("Tried to call update_message without a session - Why")
         return
-    host_id, channel_id, message_id = database.get_session_data(guild_id)
+    host_id, channel_id, message_id,lock_in_status,cur_pick_user_id = database.get_session_data(guild_id)
     channel = bot.get_channel(channel_id) or await bot.fetch_channel(channel_id)
     if channel == None:
         print("NO CHannel??")
     message = await channel.fetch_message(message_id)
     if message:
-        host_name = bot.get_user(host_id)
+        host_name = await get_user_name_from_id(host_id,guild_id)
         new_embed = discord.Embed(
             title= f'Your host is:  {host_name}',
             description='',
             color=discord.Color.blue()
         )
 #Get the last to pick, if they haven't picked there's a different message
-        cur_pick_user_id,picked_movie = database.get_last_active_picker(guild_id)
+        picked_movie = database.get_user_picked_movie(guild_id,cur_pick_user_id)
         if cur_pick_user_id == None:
             val =f"Noone is picking movies. Why do I exist"
         elif picked_movie:
-            val = f"The movie will be ___ {picked_movie} - Picked by {await get_user_name_from_id(cur_pick_user_id,guild_id)}.___ - WILL HIDE THIS LATER UNTIL THE HOST LOCKS IT IN"
+            if lock_in_status == "true":
+                val = f"The movie will be ___ {picked_movie} - Picked by {await get_user_name_from_id(cur_pick_user_id,guild_id)}.___ - WILL HIDE THIS LATER UNTIL THE HOST LOCKS IT IN"
+            else:
+                val = f"{await get_user_name_from_id(cur_pick_user_id,guild_id)} has picked their movie. Waiting for {host_name} to lock it in"
         else:
             val = f"FUCKO {await get_user_name_from_id(cur_pick_user_id,guild_id)} HASN'T PICKED YET"
         
@@ -257,6 +262,12 @@ def set_picked_movie(user,movie):
     user_id = str(user.id)
     guild_id = str(user.guild.id)
     return database.set_user_picked_movie(user_id,guild_id,movie)
+def set_next_picker(guild_id):
+    next_man_user = manual_pick_order[guild_id]
+    if next_man_user != None:
+        database.set_current_picker(guild_id,next_man_user)
+    else:
+        database.set_current_picker(guild_id,database.get_last_active_picker(guild_id))
 
 
 ###COMMANDS###
@@ -294,13 +305,12 @@ async def join_movienight(ctx):
 @bot.slash_command()
 @session_check()
 async def i_hate_my_friends(ctx):
+    #Sets you inactive
     guild_id = str(ctx.guild.id)  # Get the current server (guild) ID - Convert to string
     user = str(ctx.author.id)
     database.update_user_status(user,guild_id,"false")
     await ctx.respond(f"Set {ctx.authoer} pick status to false. IF THIS ISNT YOU SOMETHING FUCKED UP")
 
-    ###This function will set you to inactive
-    pass
 @bot.slash_command()
 @session_check()
 async def i_like_my_friends(ctx):
@@ -310,24 +320,32 @@ async def i_like_my_friends(ctx):
     database.update_user_status(user,guild_id,"true")
     await ctx.respond(f"Set {ctx.authoer} pick status to true. IF THIS ISNT YOU SOMETHING FUCKED UP")
 
-    pass
-
-@bot.slash_command()    
+@bot.slash_command()
 @session_check()
 async def lock_it_in(ctx):
-    ###This is to set lock in the current movie - Only reason function is so you /watched to commit it and reveal the movie
-    host_id, channel_id, message_id,lock_in_status = database.get_session_data(ctx.guild.id)
-    if database.get_last_active_picker != None:    
-        database.toggle_session_lockin(ctx.guild.id,"true")
-
+    guild_id = str(ctx.guild.id)
+    # Check if there's a manually set picker
+    current_picker = database.get_current_picker(guild_id)
+    
+    if current_picker:    
+        database.toggle_session_lockin(guild_id, "true")
+        await ctx.respond(f"Locked in movie for picker {await get_user_name_from_id(current_picker, guild_id)}")
+    else:
+        await ctx.respond(f"No active picker. Couldn't lock in.")
     
 @bot.slash_command()
 @session_check()
 async def watched(ctx):
+    guild_id = ctx.guild.id
     host_id, channel_id, message_id,lock_in_status = database.get_session_data(ctx.guild.id)
     if lock_in_status == "true":
-        picker = database.get_last_active_picker(ctx.guild.id)
-        database.set_user_picked_movie()
+        picker = database.get_current_picker(ctx.guild.id)
+        database.set_user_picked_movie(picker,ctx.guild.id,database.get_user_picked_movie(picker))
+        if guild_id in manual_pick_order:
+            if manual_pick_order[guild_id][0] == picker:
+                manual_pick_order[guild_id].pop(0)
+        set_next_picker(guild_id)
+
     ### Commits the locked in movie to watched
     pass
 @bot.slash_command()
@@ -338,7 +356,7 @@ async def cancel_lock_in(ctx):
     if not lock_in_status == "true":
         return
     database.toggle_session_lockin(ctx.guild.id,"false")
-    last_picker = database.get_last_active_picker(ctx.guild.id)
+    last_picker = database.get_current_picker(ctx.guild.id)
     #If there was a picker lets set them to not active, then update the message
     if last_picker != None:
         database.update_user_status(last_picker,ctx.guild.id,"false")
@@ -347,14 +365,6 @@ async def cancel_lock_in(ctx):
     ###Bails out if locked in and sets user to inactive
     pass
 
-########################TO REMOVE COMMANDS- FOR DEBUGGING################
-@bot.slash_command()
-async def test_command(ctx,*,username):
-    print(username)
-    if database.check_user_exists(username, str(ctx.guild.id)):
-        await ctx.respond("USER EXISTS")
-    else:
-        await ctx.respond("DOES NOT EXIST")
 
 @bot.slash_command()
 @session_check()
@@ -378,5 +388,30 @@ async def manual_add_movie(ctx, movie_name,date_watched,picked_by_user : discord
         await ctx.respond("Invalid date format. Use YYYY-MM-DD.", ephemeral=True)
     except Exception as e:
         await ctx.respond(f"An exception occurred - Possibly Database related?: {str(e)}", ephemeral=True)
+@bot.slash_command()
+@session_check()
+async def make_user_pick(ctx,user: discord.Member):
+    guild_id = await user.guild.id
+    user_id = user.id
+    if guild_id not in manual_pick_order:
+        manual_pick_order[guild_id] = []
+    if user_id in manual_pick_order[guild_id]:
+        await ctx.respond(f"{get_user_name_from_id(user_id)} already in manual queue")
+        return
+    else:
+        manual_pick_order[guild_id].append(user_id)
+@bot.slash_command()
+@session_check()
+async def skip_current_picker(ctx):
+    guild_id = str(ctx.guild.id)
+    if database.get_lock_in_status(guild_id) == "true":
+        await ctx.respond(f"You can't skip current picker after locking in. Bail out first")
+    cur_picker = database.get_current_picker(guild_id)
+    #The current picker should always be the first in the list of the manual order if it has any set
+    if cur_picker == manual_pick_order[guild_id][0]:
+        manual_pick_order[guild_id].pop(0)
+        set_next_picker(guild_id)
+    else:
+        await ctx.respond(f"No manual set users, default order is last to pick, picks now")
 
 bot.run(TOKEN)

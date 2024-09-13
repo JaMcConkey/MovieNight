@@ -224,8 +224,23 @@ def update_or_create_session_data(guild_id, host_id, channel_id, message_id, loc
         """, (guild_id, host_id, channel_id, message_id, lock_in_status, picker))
         conn.commit()
 
+
+def set_current_picker(guild_id, picker_id):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        c.execute("""UPDATE session SET picker = ? WHERE guild_id = ?""", (picker_id, guild_id))
+        conn.commit()
+
+def get_current_picker(guild_id):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        c.execute("""SELECT picker FROM session WHERE guild_id = ?""", (guild_id,))
+        picker = c.fetchone()
+        return picker[0] if picker else None
+    
+
 def get_session_data(guild_id):
-    """returns host_id, channel_id, message_id,lock_in_status"""
+    """returns host_id, channel_id, message_id,lock_in_status,current_user_picking"""
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
         c.execute("SELECT host_id, channel_id, message_id, movie_locked_in,picker FROM session WHERE guild_id = ?", (guild_id,))
@@ -245,3 +260,24 @@ def session_exists(guild_id):
         """, (guild_id,))
         
         return c.fetchone() is not None
+
+def get_user_picked_movie(guild_id,user_id):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+
+        c.execute("""--sql
+                  SELECT current_movie_picked FROM user
+                  WHERE guild_id = ? AND user_id = ?                  
+                  """,(guild_id,user_id))
+        return c.fetchone()
+
+def get_lock_in_status(guild_id):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+
+        c.execute("""--sql
+                  SELECT movie_locked_in
+                  FROM session
+                  WHERE guild_id = ?
+        """,(guild_id,))
+        return c.fetchone()
