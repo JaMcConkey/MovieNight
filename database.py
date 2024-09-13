@@ -35,7 +35,8 @@ def create_table():
                 host_id TEXT,  
                 channel_id TEXT, --We'll try reusing the same channel and message on restarts and keep it updated
                 message_id TEXT,
-                movie_locked_in TEXT  
+                lock_in_status TEXT,
+                picker TEXT,  
                 PRIMARY KEY (guild_id)
             )
         """);
@@ -208,23 +209,26 @@ def toggle_session_lockin(guild_id, bool_val):
         """, (val, guild_id))
         conn.commit()
     return True
-def update_or_create_session_data(guild_id, host_id, channel_id, message_id):
+def update_or_create_session_data(guild_id, host_id, channel_id, message_id, lock_in_status, picker):
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
         c.execute("""--sql
-            INSERT INTO session (guild_id, host_id, channel_id, message_id)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO session (guild_id, host_id, channel_id, message_id, lock_in_status, picker)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(guild_id) DO UPDATE SET
                 host_id = excluded.host_id,
                 channel_id = excluded.channel_id,
-                message_id = excluded.message_id
-        """, (guild_id, host_id, channel_id, message_id))
+                message_id = excluded.message_id,
+                lock_in_status = excluded.lock_in_status,
+                picker = excluded.picker
+        """, (guild_id, host_id, channel_id, message_id, lock_in_status, picker))
         conn.commit()
+
 def get_session_data(guild_id):
     """returns host_id, channel_id, message_id,lock_in_status"""
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
-        c.execute("SELECT host_id, channel_id, message_id, movie_locked_in FROM session WHERE guild_id = ?", (guild_id,))
+        c.execute("SELECT host_id, channel_id, message_id, movie_locked_in,picker FROM session WHERE guild_id = ?", (guild_id,))
         return c.fetchone()
 def remove_session_data(guild_id):
     with sqlite3.connect('movienight.db') as conn:
