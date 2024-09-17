@@ -136,16 +136,24 @@ def add_watched_movie(movie_name, picked_by_user, date_watched, guild_id):
 
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
-        # Make sure the picked_by_user exists
-        c.execute("SELECT 1 FROM users WHERE user_id = ? AND guild_id = ?", (picked_by_user, guild_id))
+        # Grab last date picked here, to make sure user exists, and also update date if needed
+        c.execute("SELECT last_date_picked FROM users WHERE user_id = ? AND guild_id = ?", (picked_by_user, guild_id))
         user_exists = c.fetchone()
         if not user_exists:
             print(f"User '{picked_by_user}' does not exist in guild {guild_id}. - Check why we're getting here")
             return
+        last_date_picked = user_exists[0]
 
         # Add movie and make sure to use the guild_id
         c.execute("""INSERT INTO watched_movies (movie_name, picked_by_user, date_watched, guild_id)
-                     VALUES (?, ?, ?, ?)""", (movie_name, picked_by_user, date_watched, guild_id))
+                     VALUES (?, ?, ?, ?)
+                  """, (movie_name, picked_by_user, date_watched, guild_id))
+        #If the new movie is more recent update user table
+        if last_date_picked is None or date_watched > last_date_picked:
+            c.execute("""UPDATE users
+                    SET last_date_picked = ?, last_movie_picked = ?
+                    WHERE user_id = ? AND guild_id =?
+                    """,(date_watched,movie_name,picked_by_user,guild_id))
         print(f"Added new watched movie to DB for guild {guild_id}")
         conn.commit()
     return True
@@ -154,26 +162,43 @@ def check_if_watched(movie_name, guild_id):
     """returns movie_name,"""
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
-        c.execute("""SELECT movie_name, picked_by_user, date_watched
+
+        movie_name = movie_name.strip()
+        c.execute("""SELECT movie_name
                    FROM watched_movies WHERE movie_name = ? AND guild_id = ?
                   """, (movie_name, guild_id))
         details = c.fetchone()
-        if details:
-            return True, details
+        if details and details[0].strip().lower() == movie_name.lower():
+            return True
         else:
-            return False, None
+            return False
+    
 
-# Get the last active picker by user_id
 def get_last_active_picker(guild_id):
-    """returns user_id, current_movie_picked"""
+    """Returns user_id, current_movie_picked"""
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
-        c.execute("""SELECT user_id, current_movie_picked FROM users
-                  WHERE active_picker = "True" AND guild_id = ?
-                  ORDER BY last_date_picked DESC
-                  LIMIT 1
-                  """, (guild_id,))
+        
+        # Check if you've never picked just return whoever. idc
+        c.execute("""SELECT user_id, current_movie_picked
+                      FROM users
+                      WHERE active_picker = "True" AND last_date_picked IS NULL AND guild_id = ?
+                      LIMIT 1
+                   """, (guild_id,))
         user = c.fetchone()
+        
+        if user:
+            return user
+        
+        #Get the longest stretch between picks and now - ASCEND
+        c.execute("""SELECT user_id, current_movie_picked, last_date_picked
+                      FROM users
+                      WHERE active_picker = "True" AND guild_id = ?
+                      ORDER BY last_date_picked ASC
+                      LIMIT 1
+                   """, (guild_id,))
+        user = c.fetchone()
+        
         if user:
             return user
         else:
@@ -204,9 +229,12 @@ def toggle_session_lockin(guild_id, bool_val):
         c = conn.cursor()
         c.execute("""--sql
             UPDATE session
-            SET movie_locked_in = ?
+            SET lock_in_status = ?
             WHERE guild_id = ?
         """, (val, guild_id))
+        if c.rowcount == 0:
+            print("Failed to update lock_in_status or no rows were affected.")
+            return False
         conn.commit()
     return True
 def update_or_create_session_data(guild_id, host_id, channel_id, message_id, lock_in_status, picker):
@@ -224,11 +252,26 @@ def update_or_create_session_data(guild_id, host_id, channel_id, message_id, loc
         """, (guild_id, host_id, channel_id, message_id, lock_in_status, picker))
         conn.commit()
 
-def get_session_data(guild_id):
-    """returns host_id, channel_id, message_id,lock_in_status"""
+
+def set_current_picker(guild_id, picker_id):
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
-        c.execute("SELECT host_id, channel_id, message_id, movie_locked_in,picker FROM session WHERE guild_id = ?", (guild_id,))
+        c.execute("""UPDATE session SET picker = ? WHERE guild_id = ?""", (picker_id, guild_id))
+        conn.commit()
+
+def get_current_picker(guild_id):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        c.execute("""SELECT picker FROM session WHERE guild_id = ?""", (guild_id,))
+        picker = c.fetchone()
+        return picker[0] if picker else None
+    
+
+def get_session_data(guild_id):
+    """returns host_id, channel_id, message_id,lock_in_status,current_user_picking"""
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        c.execute("SELECT host_id, channel_id, message_id, lock_in_status,picker FROM session WHERE guild_id = ?", (guild_id,))
         return c.fetchone()
 def remove_session_data(guild_id):
     with sqlite3.connect('movienight.db') as conn:
@@ -245,3 +288,28 @@ def session_exists(guild_id):
         """, (guild_id,))
         
         return c.fetchone() is not None
+
+def get_user_picked_movie(guild_id,user_id):
+    """returns movie name as a string"""
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+
+        c.execute("""--sql
+                  SELECT current_movie_picked FROM users
+                  WHERE guild_id = ? AND user_id = ?                  
+                  """,(guild_id,user_id))
+        res = c.fetchone()
+        return res[0] if res else None
+
+def get_lock_in_status(guild_id):
+    """return a BOOL of the status"""
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+
+        c.execute("""--sql
+                  SELECT lock_in_status
+                  FROM session
+                  WHERE guild_id = ?
+        """,(guild_id,))
+        res = c.fetchone()
+        return res[0] == 'True' if res else False
