@@ -22,7 +22,8 @@ def create_table():
         c.execute("""--sql
             CREATE TABLE IF NOT EXISTS watched_movies (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                movie_name TEXT NOT NULL,
+                tmdb_id INTEGER NOT NULL,  -- Store TheMovieDB ID
+                movie_name TEXT,  -- Optionally keep this for reference
                 picked_by_user TEXT NOT NULL,  -- user_id instead of username
                 date_watched DATE,
                 guild_id TEXT NOT NULL,  -- Track server ID
