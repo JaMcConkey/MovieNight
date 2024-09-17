@@ -6,6 +6,7 @@ from discord import option
 from datetime import datetime
 from discord.ext import commands, tasks
 from discord.ui import View, Button
+from functools import wraps
 
 from dotenv import load_dotenv
 
@@ -122,10 +123,17 @@ def session_check():
             return False  
     return commands.check(decorator)
 def update_message_after_command():
-    async def decorator(ctx):
-        await ctx.command.invoke(ctx)
-        await update_message(str(ctx.guild.id))
-    return commands.after_invoke(decorator)
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(ctx, *args, **kwargs):
+            # Call the original command function
+            result = await func(ctx, *args, **kwargs)
+            # Call the update_message function after the command
+            guild_id = str(ctx.guild.id)
+            await update_message(guild_id)
+            return result
+        return wrapper
+    return decorator
 @bot.command()
 async def sync(ctx):
     # Sync commands with Discord
@@ -277,16 +285,24 @@ def set_picked_movie(user,movie):
     return database.set_user_picked_movie(user_id,guild_id,movie)
 def set_next_picker(guild_id):
     debug_picker = ""
+    
+    # Print the manual pick order
+    print("Checking manual pick order for guild_id:", guild_id)
+    print("Manual Pick Order Contents:", manual_pick_order)
+    print("Manual Pick Order for this guild:", manual_pick_order.get(guild_id, []))
+    # Check if guild_id is in the manual pick order dictionary
     if guild_id in manual_pick_order and manual_pick_order[guild_id]:
         next_man_user = manual_pick_order[guild_id][0]
         debug_picker = next_man_user
         print("MANUAL ORDER SET")
-        database.set_current_picker(guild_id,next_man_user)
+        database.set_current_picker(guild_id, next_man_user)
     else:
-        last_active,movie = database.get_last_active_picker(guild_id)
+        # Fallback to the last active picker
+        last_active, movie = database.get_last_active_picker(guild_id)
         debug_picker = last_active
         print("LAST TO PICK SET")
-        database.set_current_picker(guild_id,last_active)
+        database.set_current_picker(guild_id, last_active)
+    
     print(f"Current picker should be {debug_picker}")
 
 
@@ -368,7 +384,7 @@ async def lock_it_in(ctx):
 @session_check()
 @update_message_after_command()
 async def watched(ctx):
-    guild_id = ctx.guild.id
+    guild_id = str(ctx.guild.id)
     host_id, channel_id, message_id,lock_in_status,cur_user = database.get_session_data(ctx.guild.id)
     movie = database.get_user_picked_movie(guild_id,cur_user)
     if database.get_lock_in_status(guild_id) == True:  #the lock in status from session data a string, so using this
@@ -417,9 +433,9 @@ async def manual_add_movie(ctx, movie_name,picked_by_user : discord.Member,date_
 @bot.slash_command()
 @session_check()
 @update_message_after_command()
-async def make_user_pick(ctx,user: discord.Member):
-    guild_id = user.guild.id
-    user_id = user.id
+async def make_user_pick(ctx,user: discord.Member): 
+    guild_id = str(user.guild.id)
+    user_id = str(user.id)
     if guild_id not in manual_pick_order:
         manual_pick_order[guild_id] = []
     if user_id in manual_pick_order[guild_id]:
@@ -427,6 +443,7 @@ async def make_user_pick(ctx,user: discord.Member):
         return
     else:
         manual_pick_order[guild_id].append(user_id)
+        print("Manually added user to order")
 @bot.slash_command()
 @session_check()
 @update_message_after_command()
