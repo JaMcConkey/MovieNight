@@ -297,7 +297,7 @@ async def i_hate_my_friends(ctx):
     guild_id = str(ctx.guild.id)  # Get the current server (guild) ID - Convert to string
     user = str(ctx.author.id)
     database.update_user_status(user,guild_id,"false")
-    await ctx.respond(f"Set {ctx.authoer} pick status to false. IF THIS ISNT YOU SOMETHING FUCKED UP")
+    await ctx.respond(f"Set {ctx.authoer} pick status to false. IF THIS ISNT YOU SOMETHING FUCKED UP", ephemeral=True)
 
     ###This function will set you to inactive
     pass
@@ -308,7 +308,7 @@ async def i_like_my_friends(ctx):
     guild_id = str(ctx.guild.id) 
     user = str(ctx.author.id)
     database.update_user_status(user,guild_id,"true")
-    await ctx.respond(f"Set {ctx.authoer} pick status to true. IF THIS ISNT YOU SOMETHING FUCKED UP")
+    await ctx.respond(f"Set {ctx.authoer} pick status to true. IF THIS ISNT YOU SOMETHING FUCKED UP", ephemeral=True)
 
     pass
 
