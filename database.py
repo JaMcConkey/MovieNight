@@ -182,7 +182,7 @@ def get_last_active_picker(guild_id):
         user = c.fetchone()
         
         if user:
-            return user
+            return user[0]
         else:
             print("No active users :(")
             return None
@@ -219,7 +219,7 @@ def toggle_session_lockin(guild_id, bool_val):
             return False
         conn.commit()
     return True
-def update_or_create_session_data(guild_id, host_id, channel_id, message_id, lock_in_status, picker):
+def update_or_create_session_data(guild_id, host_id, channel_id, message_id, lock_in_status = "false", picker = None):
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
         c.execute("""--sql
