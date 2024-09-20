@@ -41,6 +41,9 @@ ___THESE ARE SUPPOSED TO BE HOST ONLY (ADAM) BUT I HAVENT DONE THAT YET SO DONT 
 /skip_user - Skips the pick, BUT ONLY if that person is set manually \n
 ANYONE can do this, but don't be a retard
 /manual_add_movie - Manually adds a movie to the database. Uses TheMovieDB ID's, you can see that when you /pick
+
+Source Code for the paranoid schitzo's
+<https://github.com/JaMcConkey/MovieNight>
 """
 # View class, multiple pages
 class MovieView(View):
