@@ -167,7 +167,7 @@ async def setup_movienight_bot_here(ctx):
     guild_id = str(ctx.guild.id)
     host_id = str(ctx.author.id)
     channel_id = str(ctx.channel.id)
-    message = await ctx.send("Creating initial message here - This should dynamically update")
+    message = await ctx.send(commands_string)
     message_id = str(message.id)
     database.update_or_create_session_data(guild_id,host_id,channel_id,message_id)
 @bot.command()
