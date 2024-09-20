@@ -129,6 +129,7 @@ class ConfirmManualAdd(View):
 #TODO - BIG MAYBE - SWAP everything to movie ID from MovieDB?
 @bot.event
 async def on_ready():
+    await bot.sync_commands()
     sessions = database.get_all_sessions()
     for ses in sessions:
         database.toggle_session_lockin(ses,"False")
@@ -144,7 +145,7 @@ def session_check():
             return True 
         else:
             await ctx.respond("No active session. Use the command !setup_movienight_bot_here.", ephemeral=True)
-            return False  
+            return False
     return commands.check(decorator)
 def update_message_after_command():
     def decorator(func):
@@ -337,7 +338,7 @@ def set_next_picker(guild_id):
         # Fallback to the last active picker
         last_active = database.get_last_active_picker(guild_id)
         debug_picker = last_active
-        print("__________________________________", debug_picker)
+#print(debug_picker)
         #print("LAST TO PICK SET")
         database.set_current_picker(guild_id, last_active)
     
@@ -354,8 +355,8 @@ async def refresh_message(ctx):
 
 @bot.slash_command()
 @session_check()
-@update_message_after_command()
-async def pick_movie(ctx, *, movie_name):
+@update_message_after_command() 
+async def pick_movie(ctx, movie_name):
     movies = get_movie_details(movie_name)
     
     if movies:
