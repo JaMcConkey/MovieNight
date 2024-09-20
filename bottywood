@@ -27,8 +27,21 @@ bot = commands.Bot(command_prefix=bot_prefix, intents=intents)
 
 ############### EXTRA CLASSES - TODO: MOVE OUT OF HERE
 
-manual_pick_order = {}  # {guild_id: [user_id1, user_id2, ...]}
+manual_pick_order = {}  # {guild_id: [user_id1, user_id2, ...]} #TODO move to database to make persistent? idc
+commands_string = """___COMMANDS___ \n
+/join_movie_night - joins in on the fun \n
+/i_hate_my_friends - removes you from the queue to pick because you're a bitch \n
+/i_like_my_frinds - rejoins because  you're cool \n
+/pick_movie -  brings a page to pick a movie. CLICK PICK to set your pick\n
 
+___THESE ARE SUPPOSED TO BE HOST ONLY (ADAM) BUT I HAVENT DONE THAT YET SO DONT BE STUPID___ \n
+/lock_it_in - Should only be for the host(Adam) locks the movie in and shows what it is \n
+/watched - Host Command, adds the locked in movie to the database \n
+/make_user_pick - Starts a manual order that is prio over the next pick \n
+/skip_user - Skips the pick, BUT ONLY if that person is set manually \n
+ANYONE can do this, but don't be a retard
+/manual_add_movie - Manually adds a movie to the database. Uses TheMovieDB ID's, you can see that when you /pick
+"""
 # View class, multiple pages
 class MovieView(View):
     def __init__(self, movies, user):
@@ -38,7 +51,7 @@ class MovieView(View):
         self.user = user 
 
     async def update_embed(self, interaction):
-        """Update the embed with the current movie details."""
+        """t update the embed with the current movie details."""
         movie = self.movies[self.index]
         embed = discord.Embed(
             title=movie['title'],
@@ -46,11 +59,12 @@ class MovieView(View):
             color=discord.Color.blue()
         )
         embed.add_field(name="Release Date", value=movie['release_date'], inline=True)
-        embed.add_field(name="Rating", value=movie['vote_average'], inline=True)
+        embed.add_field(name="MOVIE ID",value=movie['id'],inline = True)
         
         if movie['poster_path']:
             poster_url = f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
             embed.set_image(url=poster_url)
+
 
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -75,29 +89,29 @@ class MovieView(View):
         """Picks the current movie."""
         if interaction.user == self.user:
             movie = self.movies[self.index]
-            if set_picked_movie(interaction.user,movie['title']):  
+            if set_picked_movie(interaction.user,movie['title'],movie["id"]):  
                 await update_message(str(interaction.user.guild.id))
                 await interaction.response.send_message(f"Selected '{movie['title']}' ", ephemeral=True)
             else:
                 await interaction.response.send_message(f"Failed to select '{movie['title']}, #TODO - Add error codes - For now probably means you're locked in' ", ephemeral=True)
 
 class ConfirmManualAdd(View):
-    def __init__(self, movie_name, picker_id, date_watched, guild_id):
+    def __init__(self, movie_id, picker_id, date_watched, guild_id):
         super().__init__(timeout=60)  # Do I need a timeout? 
-        self.movie_name = movie_name
+        self.movie_id = movie_id
         self.picker_id = picker_id
         self.date_watched = date_watched
         self.guild_id = guild_id
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.success)
     async def confirm_button(self, button: Button, interaction: discord.Interaction):
-        if database.check_if_watched(self.movie_name,self.guild_id):
+        if database.check_if_watched(self.movie_id,self.guild_id):
             await interaction.response.send_message(f"We already watched this", ephemeral=True)
         else:
-            if database.add_watched_movie(self.movie_name, self.picker_id, self.date_watched, self.guild_id):
-                await interaction.response.send_message(f"Movie '{self.movie_name}' added successfully!", ephemeral=True)
+            if database.add_watched_movie(self.movie_id, self.picker_id, self.date_watched, self.guild_id):
+                await interaction.response.send_message(f"Movie with ID -'{self.movie_id}' added successfully!", ephemeral=True)
             else:
-                await interaction.response.send_message(f"Failed to add movie ({self.movie_name}) - CHECK WHY", ephemeral=True)
+                await interaction.response.send_message(f"Failed to add movie - CHECK WHY", ephemeral=True)
         self.stop() 
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.danger)
@@ -109,6 +123,10 @@ class ConfirmManualAdd(View):
 #TODO - BIG MAYBE - SWAP everything to movie ID from MovieDB?
 @bot.event
 async def on_ready():
+    sessions = database.get_all_sessions()
+    for ses in sessions:
+        database.toggle_session_lockin(ses,"False")
+        await update_message(ses)
     pass
    # await create_message()
 
@@ -171,8 +189,8 @@ async def set_host(interaction: discord.Interaction, user: discord.Member):
     else:
         await interaction.response.send_message(f"Set Host. to {user} ", ephemeral=True)
 
-# Get's movies where the user can cycle through to pick. 
 def get_movie_details(movie_name):
+    '''Calls themovieDB api and returns a list of movies and their details'''
     url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_TOKEN}&query={movie_name}"
     response = requests.get(url)
     
@@ -182,6 +200,16 @@ def get_movie_details(movie_name):
             # Return all movie results
             return data['results']
     return None
+def get_movie_poster_url(movie_id):
+    '''Calls movieDB api to get the poster'''
+    url = f"https://api.themoviedb.org/3/movie/{movie_id}?api_key={TMDB_TOKEN}"
+    response = requests.get(url)
+    data = response.json()
+    if response.status_code == 200:
+        return f"https://image.tmdb.org/t/p/w500{data["poster_path"]}"
+    else:
+        return ""
+
 
 async def get_user_name_from_id(user_id, guild_id):
     guild = bot.get_guild(int(guild_id))
@@ -218,22 +246,25 @@ async def update_message(guild_id):
             color=discord.Color.blue()
         )
 #Get the last to pick, if they haven't picked there's a different message
-        picked_movie = database.get_user_picked_movie(guild_id,cur_pick_user_id)
+#NOTE / TODO  For now resetting all lockins on start, but it's possible to be locked in and not picked a movie
+        movie_id, movie_name = database.get_user_picked_movie(guild_id,cur_pick_user_id)
         if cur_pick_user_id == None:
             val =f"Noone is picking movies. Why do I exist"
-        elif picked_movie:
+        elif movie_id:
             if lock_in_status:
-                val = f"WE'RE LOCKED IN BB. The movie will be ___ {picked_movie} - Picked by {await get_user_name_from_id(cur_pick_user_id,guild_id)}"
+                val = f"WE'RE LOCKED IN BB. The movie will be ___ {movie_name}___ - Picked by {await get_user_name_from_id(cur_pick_user_id,guild_id)}"
+                poster_url = get_movie_poster_url(movie_id)
+                new_embed.set_image(url=poster_url)
             else:
                 val = f"{await get_user_name_from_id(cur_pick_user_id,guild_id)} has picked their movie. Waiting for {host_name} to lock it in"
         else:
             val = f"FUCKO {await get_user_name_from_id(cur_pick_user_id,guild_id)} HASN'T PICKED YET"
-        
         new_embed.add_field(
             name="__The next movie will be__",
             value=val,
             inline=False
         )
+
         new_embed.add_field(name="User", value="Fetching...", inline=True)
         new_embed.add_field(name="Last Pick", value="Fetching...", inline=True)
         new_embed.add_field(name="Status", value="Fetching...", inline=True)
@@ -277,33 +308,31 @@ def get_next_movie(guild_id):
     """returns the movie picked by the last to pick"""
     user_id,picked_movie = database.get_last_active_picker(guild_id)
 
-def set_picked_movie(user,movie):
+def set_picked_movie(user,movie_name,movie_id):
     user_id = str(user.id)
     guild_id = str(user.guild.id)
     if database.get_lock_in_status(guild_id) == True and database.get_current_picker(guild_id) == user_id:
         return False
-    return database.set_user_picked_movie(user_id,guild_id,movie)
+    return database.set_user_picked_movie(user_id,guild_id,movie_id,movie_name)
 def set_next_picker(guild_id):
     debug_picker = ""
     
-    # Print the manual pick order
-    print("Checking manual pick order for guild_id:", guild_id)
-    print("Manual Pick Order Contents:", manual_pick_order)
-    print("Manual Pick Order for this guild:", manual_pick_order.get(guild_id, []))
-    # Check if guild_id is in the manual pick order dictionary
+    # DEBUGS 
+    #print("Checking manual pick order for guild_id:", guild_id)
+    #print("Manual Pick Order for this guild:", manual_pick_order.get(guild_id, []))
     if guild_id in manual_pick_order and manual_pick_order[guild_id]:
         next_man_user = manual_pick_order[guild_id][0]
         debug_picker = next_man_user
-        print("MANUAL ORDER SET")
+        #print("MANUAL ORDER SET")
         database.set_current_picker(guild_id, next_man_user)
     else:
         # Fallback to the last active picker
         last_active, movie = database.get_last_active_picker(guild_id)
         debug_picker = last_active
-        print("LAST TO PICK SET")
+        #print("LAST TO PICK SET")
         database.set_current_picker(guild_id, last_active)
     
-    print(f"Current picker should be {debug_picker}")
+   # print(f"Current picker should be {debug_picker}")
 
 
 ###COMMANDS###
@@ -328,7 +357,7 @@ async def pick_movie(ctx, *, movie_name):
             color=discord.Color.green()
         )
         embed.add_field(name="Release Date", value=movie['release_date'], inline=True)
-        embed.add_field(name="Rating", value=movie['vote_average'], inline=True)
+        embed.add_field(name="MOVIE ID",value=movie['id'],inline = True)
         
         if movie['poster_path']:
             poster_url = f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
@@ -354,7 +383,7 @@ async def i_hate_my_friends(ctx):
     guild_id = str(ctx.guild.id)  # Get the current server (guild) ID - Convert to string
     user = str(ctx.author.id)
     database.update_user_status(user,guild_id,"false")
-    await ctx.respond(f"Set {ctx.authoer} pick status to false. IF THIS ISNT YOU SOMETHING FUCKED UP", ephemeral=True)
+    await ctx.respond(f"Set {ctx.author} pick status to false. IF THIS ISNT YOU SOMETHING FUCKED UP", ephemeral=True)
 
 @bot.slash_command()
 @session_check()
@@ -364,7 +393,7 @@ async def i_like_my_friends(ctx):
     guild_id = str(ctx.guild.id) 
     user = str(ctx.author.id)
     database.update_user_status(user,guild_id,"true")
-    await ctx.respond(f"Set {ctx.authoer} pick status to true. IF THIS ISNT YOU SOMETHING FUCKED UP", ephemeral=True)
+    await ctx.respond(f"Set {ctx.author} pick status to true. IF THIS ISNT YOU SOMETHING FUCKED UP", ephemeral=True)
 
 @bot.slash_command()
 @session_check()
@@ -373,12 +402,13 @@ async def lock_it_in(ctx):
     guild_id = str(ctx.guild.id)
     # Check if there's a manually set picker
     current_picker = database.get_current_picker(guild_id)
-    
-    if current_picker:    
-        database.toggle_session_lockin(guild_id, "true")
+    movie_id,movie_name = database.get_user_picked_movie(guild_id,current_picker)
+    if movie_id:    
+        database.toggle_session_lockin(guild_id, "True")
         await ctx.respond(f"Locked in movie for picker {await get_user_name_from_id(current_picker, guild_id)}", ephemeral=True)
     else:
-        await ctx.respond(f"No active picker. Couldn't lock in.", ephemeral=True)
+        database.toggle_session_lockin(guild_id,"False") #Setting it to false, incase somehow I set it true from restarts etc?
+        await ctx.respond(f"No active picker OR picked didn't choose a movie. Couldn't lock in.", ephemeral=True)
     
 @bot.slash_command()
 @session_check()
@@ -386,15 +416,20 @@ async def lock_it_in(ctx):
 async def watched(ctx):
     guild_id = str(ctx.guild.id)
     host_id, channel_id, message_id,lock_in_status,cur_user = database.get_session_data(ctx.guild.id)
-    movie = database.get_user_picked_movie(guild_id,cur_user)
+    movie_id,movie_name = database.get_user_picked_movie(guild_id,cur_user)
     if database.get_lock_in_status(guild_id) == True:  #the lock in status from session data a string, so using this
-        database.set_user_picked_movie(cur_user,ctx.guild.id,movie)
+        if database.add_watched_movie(movie_id,movie_name,cur_user,datetime.today(),guild_id):
+            print("Added movie to database")
+            await ctx.respond(f"Added the movie {movie_name} to the watched movies", ephemeral = True)
+        else:
+            await ctx.respond(f"Failed to add movie to the databse, maybe watched.",ephemeral = True)
+        #Removes teh current manual set picker
         if guild_id in manual_pick_order:
             if manual_pick_order[guild_id][0] == cur_user:
                 manual_pick_order[guild_id].pop(0)
         set_next_picker(guild_id)
     else:
-        print("Can't watched when not locked in")
+        await ctx.respond("Can't watched when not locked in", ephemeral = True)
 @bot.slash_command()
 @session_check()
 @update_message_after_command()
@@ -414,15 +449,15 @@ async def cancel_lock_in(ctx):
 @session_check()
 @update_message_after_command()
 @option("date_watched",description="Date goes in YYYY-MM-DD")
-async def manual_add_movie(ctx, movie_name,picked_by_user : discord.Member,date_watched):
+async def manual_add_movie(ctx, movie_id,picked_by_user : discord.Member,date_watched):
     guild_id = str(ctx.guild.id)
     picked_by_user = str(picked_by_user.id)
     try:
         # Convert date_watched string to a datetime object
         date_watched_obj = datetime.strptime(date_watched, '%Y-%m-%d')
-        view = ConfirmManualAdd(movie_name, picked_by_user, date_watched_obj, guild_id)
+        view = ConfirmManualAdd(movie_id, picked_by_user, date_watched_obj, guild_id)
         await ctx.respond(
-            f"Are you sure you want to add '{movie_name}' as watched on {date_watched}?",
+            f"Are you sure you want to add '{get_name_from_tmdb_id(movie_id)}' as watched on {date_watched}?",
             view=view,
             ephemeral=True
         )
@@ -430,6 +465,7 @@ async def manual_add_movie(ctx, movie_name,picked_by_user : discord.Member,date_
         await ctx.respond("Invalid date format. Use YYYY-MM-DD.", ephemeral=True)
     except Exception as e:
         await ctx.respond(f"An exception occurred - Possibly Database related?: {str(e)}", ephemeral=True)
+
 @bot.slash_command()
 @session_check()
 @update_message_after_command()
@@ -459,4 +495,23 @@ async def skip_current_picker(ctx):
     else:
         await ctx.respond(f"No manual set users, default order is last to pick, picks now", ephemeral=True)
 
+def get_name_from_tmdb_id(tmdb_id):
+    url = f"https://api.themoviedb.org/3/movie/{TMDB_TOKEN}"
+    
+    response = requests.get(url)
+    
+    if response.status_code == 200:
+        # Parse the JSON response
+        data = response.json()
+        movie_name = data.get("title")  # Get the movie title
+        return movie_name
+    else:
+        print(f"Failed to fetch movie details. Status code: {response.status_code}")
+        return None
+    
+@bot.slash_command()
+@session_check()
+@update_message_after_command()
+async def test_comman(ctx):
+    await ctx.respond(commands_string, ephemeral = True)
 bot.run(TOKEN)

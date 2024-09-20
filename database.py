@@ -12,6 +12,7 @@ def create_table():
                 last_date_picked DATE,
                 last_movie_picked TEXT,
                 current_movie_picked TEXT,
+                current_movie_tmdb_id INTEGER,
                 active_picker TEXT NOT NULL,
                 guild_id TEXT NOT NULL,  -- server ID
                 PRIMARY KEY (user_id, guild_id)  
@@ -91,21 +92,6 @@ def update_user_status(user_id, guild_id, status):
     except Exception as e:
         print(f"Unexpected error: {e}")
 
-# Set the user's picked movie using their user_id
-def set_user_picked_movie(user_id, guild_id, movie):
-    with sqlite3.connect('movienight.db') as conn:
-        c = conn.cursor()
-        c.execute("""--sql
-                UPDATE users
-                SET current_movie_picked = ?
-                WHERE user_id = ? AND guild_id = ?
-                    """, (movie, user_id, guild_id))
-        if c.rowcount == 0:
-            print("User not found while setting picked movie")
-            return False
-        else:
-            print(f"Updated picked movie for '{user_id}' to '{movie}'")
-            return True
 
 # Normalize status incase of capitalization typos, or allow "yes"
 def normalize_status(status):
@@ -124,10 +110,10 @@ def normalize_status(status):
         return "False"
     else:
         raise ValueError("Invalid status value. Use true,yes,1 or false,no,0 ")
-
-# Add a watched movie using the user's user_id
-def add_watched_movie(movie_name, picked_by_user, date_watched, guild_id):
-    if check_if_watched(movie_name, guild_id):
+    
+# Add a watched movie using TMDb ID
+def add_watched_movie(tmdb_id, movie_name, picked_by_user, date_watched, guild_id):
+    if check_if_watched(tmdb_id, guild_id):
         print("Movie was already watched - ###INSERT DATE###")
         return False
 
@@ -137,46 +123,41 @@ def add_watched_movie(movie_name, picked_by_user, date_watched, guild_id):
 
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
-        # Grab last date picked here, to make sure user exists, and also update date if needed
+        # Grab last date picked to ensure the user exists and update their last pick date
         c.execute("SELECT last_date_picked FROM users WHERE user_id = ? AND guild_id = ?", (picked_by_user, guild_id))
         user_exists = c.fetchone()
         if not user_exists:
-            print(f"User '{picked_by_user}' does not exist in guild {guild_id}. - Check why we're getting here")
+            print(f"User '{picked_by_user}' does not exist in guild {guild_id}.")
             return
+
         last_date_picked = user_exists[0]
 
-        # Add movie and make sure to use the guild_id
-        c.execute("""INSERT INTO watched_movies (movie_name, picked_by_user, date_watched, guild_id)
-                     VALUES (?, ?, ?, ?)
-                  """, (movie_name, picked_by_user, date_watched, guild_id))
-        #If the new movie is more recent update user table
+        # Add movie using TMDb ID and guild_id
+        c.execute("""INSERT INTO watched_movies (tmdb_id, movie_name, picked_by_user, date_watched, guild_id)
+                     VALUES (?, ?, ?, ?, ?)
+                  """, (tmdb_id, movie_name, picked_by_user, date_watched, guild_id))
+
+        # Update user's last pick date if the new movie is more recent
         if last_date_picked is None or date_watched > last_date_picked:
             c.execute("""UPDATE users
-                    SET last_date_picked = ?, last_movie_picked = ?
-                    WHERE user_id = ? AND guild_id =?
-                    """,(date_watched,movie_name,picked_by_user,guild_id))
-        print(f"Added new watched movie to DB for guild {guild_id}")
+                         SET last_date_picked = ?, last_movie_picked = ?
+                         WHERE user_id = ? AND guild_id = ?
+                      """, (date_watched, movie_name, picked_by_user, guild_id))
+        print(f"Added new watched movie with TMDb ID '{tmdb_id}' to DB for guild {guild_id}")
         conn.commit()
     return True
 # Check if a movie has been watched in a specific guild
-def check_if_watched(movie_name, guild_id):
-    """returns movie_name,"""
+def check_if_watched(tmdb_id, guild_id):
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
 
-        movie_name = movie_name.strip()
-        c.execute("""SELECT movie_name
-                   FROM watched_movies WHERE movie_name = ? AND guild_id = ?
-                  """, (movie_name, guild_id))
+        c.execute("""SELECT tmdb_id FROM watched_movies WHERE tmdb_id = ? AND guild_id = ?""", (tmdb_id, guild_id))
         details = c.fetchone()
-        if details and details[0].strip().lower() == movie_name.lower():
-            return True
-        else:
-            return False
+        return details is not None
     
 
 def get_last_active_picker(guild_id):
-    """Returns user_id, current_movie_picked"""
+    """Returns user_id"""
     with sqlite3.connect("movienight.db") as conn:
         c = conn.cursor()
         
@@ -290,17 +271,31 @@ def session_exists(guild_id):
         
         return c.fetchone() is not None
 
-def get_user_picked_movie(guild_id,user_id):
-    """returns movie name as a string"""
+def set_user_picked_movie(user_id, guild_id, tmdb_id, movie_name):
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+        c.execute("""--sql
+                UPDATE users
+                SET current_movie_tmdb_id = ?, current_movie_picked = ?
+                WHERE user_id = ? AND guild_id = ?
+                    """, (tmdb_id, movie_name, user_id, guild_id))
+        if c.rowcount == 0:
+            print("User not found while setting picked movie")
+            return False
+        else:
+            print(f"Updated picked movie for '{user_id}' to TMDb ID '{tmdb_id}' with movie name '{movie_name}'")
+            return True
+def get_user_picked_movie(guild_id, user_id):
+    """returns tmdb_id, movie_name"""
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
 
         c.execute("""--sql
-                  SELECT current_movie_picked FROM users
+                  SELECT current_movie_tmdb_id, current_movie_picked FROM users
                   WHERE guild_id = ? AND user_id = ?                  
-                  """,(guild_id,user_id))
+                  """, (guild_id, user_id))
         res = c.fetchone()
-        return res[0] if res else None
+        return (res[0], res[1]) if res else (None, None)
 
 def get_lock_in_status(guild_id):
     """return a BOOL of the status"""
@@ -314,3 +309,27 @@ def get_lock_in_status(guild_id):
         """,(guild_id,))
         res = c.fetchone()
         return res[0] == 'True' if res else False
+    
+#Maybe not use this
+def reset_all_lockins():
+    """The bot should only call this when it starts. Fixing lazy issues"""
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+
+        c.execute("""--sql
+                  UPDATE session
+                  SET lock_in_status = "False"
+                  """)
+        conn.commit()
+def get_all_sessions():
+    """get's the guild_id of all sessions"""
+    with sqlite3.connect('movienight.db') as conn:
+        c = conn.cursor()
+
+        c.execute("""--sql
+                SELECT guild_id
+                FROM session
+                  """)
+        
+        sessions = c.fetchall()
+        return [ses[0] for ses in sessions]
