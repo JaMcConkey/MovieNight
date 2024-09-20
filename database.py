@@ -170,7 +170,7 @@ def get_last_active_picker(guild_id):
         user = c.fetchone()
         
         if user:
-            return user
+            return user[0]
         
         #Get the longest stretch between picks and now - ASCEND
         c.execute("""SELECT user_id

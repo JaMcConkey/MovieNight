@@ -29,21 +29,21 @@ bot = commands.Bot(command_prefix=bot_prefix, intents=intents)
 
 manual_pick_order = {}  # {guild_id: [user_id1, user_id2, ...]} #TODO move to database to make persistent? idc
 commands_string = """___COMMANDS___ \n
-/join_movie_night - joins in on the fun \n
-/i_hate_my_friends - removes you from the queue to pick because you're a bitch \n
-/i_like_my_frinds - rejoins because  you're cool \n
+/join_movie_night - joins in on the fun 
+/i_hate_my_friends - removes you from the queue to pick because you're a bitch 
+/i_like_my_frinds - rejoins because  you're cool 
 /pick_movie -  brings a page to pick a movie. CLICK PICK to set your pick\n
 
 ___THESE ARE SUPPOSED TO BE HOST ONLY (ADAM) BUT I HAVENT DONE THAT YET SO DONT BE STUPID___ \n
-/lock_it_in - Should only be for the host(Adam) locks the movie in and shows what it is \n
-/watched - Host Command, adds the locked in movie to the database \n
-/make_user_pick - Starts a manual order that is prio over the next pick \n
-/skip_user - Skips the pick, BUT ONLY if that person is set manually \n
-ANYONE can do this, but don't be a retard\n
-/manual_add_movie - Manually adds a movie to the database. Uses TheMovieDB ID's, you can see that when you /pick\n
+/lock_it_in - Should only be for the host(Adam) locks the movie in and shows what it is 
+/watched - Host Command, adds the locked in movie to the database 
+/make_user_pick - Starts a manual order that is prio over the next pick 
+/skip_user - Skips the pick, BUT ONLY if that person is set manually 
+ANYONE can do this, but don't be a retard
+/manual_add_movie - Manually adds a movie to the database. Uses TheMovieDB ID's, you can see that when you /pick
 ___NOTES___ \n
 You can use these commands anywhere, and they will be reflected in the bot's embed(Message). \n
-If it's not updating try /refresh_message
+If it's not updating try /refresh_message - This will say interaction failed, idc
 
 Source Code for the paranoid schitzo's
 <https://github.com/JaMcConkey/MovieNight>
@@ -167,7 +167,7 @@ async def sync(ctx):
 async def setup_movienight_bot_here(ctx):
     guild_id = str(ctx.guild.id)
     if database.session_exists(guild_id):
-        await ctx.respond("A session already exists")
+        await ctx.send("A session already exists")
         return
     #If no session, create one with whoever called the command
     guild_id = str(ctx.guild.id)
