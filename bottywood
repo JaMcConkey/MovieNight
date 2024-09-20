@@ -212,6 +212,7 @@ def get_movie_poster_url(movie_id):
 
 
 async def get_user_name_from_id(user_id, guild_id):
+    '''returns either the display name, or Unknown Member'''
     guild = bot.get_guild(int(guild_id))
     if guild:
         member = guild.get_member(int(user_id))
@@ -303,6 +304,7 @@ async def update_message(guild_id):
         await message.edit(embed=new_embed) 
     else:
         print("NO MESSAGE TO UPDATE???")
+
 
 def get_next_movie(guild_id):
     """returns the movie picked by the last to pick"""

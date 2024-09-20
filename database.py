@@ -262,6 +262,7 @@ def remove_session_data(guild_id):
         conn.commit()
 
 def session_exists(guild_id):
+    """returns bool"""
     with sqlite3.connect('movienight.db') as conn:
         c = conn.cursor()
         
