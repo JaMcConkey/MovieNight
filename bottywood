@@ -337,6 +337,7 @@ def set_next_picker(guild_id):
         # Fallback to the last active picker
         last_active = database.get_last_active_picker(guild_id)
         debug_picker = last_active
+        print("__________________________________", debug_picker)
         #print("LAST TO PICK SET")
         database.set_current_picker(guild_id, last_active)
     

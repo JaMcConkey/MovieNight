@@ -162,7 +162,7 @@ def get_last_active_picker(guild_id):
         c = conn.cursor()
         
         # Check if you've never picked just return whoever. idc
-        c.execute("""SELECT user_id, current_movie_picked
+        c.execute("""SELECT user_id
                       FROM users
                       WHERE active_picker = "True" AND last_date_picked IS NULL AND guild_id = ?
                       LIMIT 1
@@ -173,7 +173,7 @@ def get_last_active_picker(guild_id):
             return user
         
         #Get the longest stretch between picks and now - ASCEND
-        c.execute("""SELECT user_id, current_movie_picked, last_date_picked
+        c.execute("""SELECT user_id
                       FROM users
                       WHERE active_picker = "True" AND guild_id = ?
                       ORDER BY last_date_picked ASC
