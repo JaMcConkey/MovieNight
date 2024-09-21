@@ -114,7 +114,8 @@ class ConfirmManualAdd(View):
         if database.check_if_watched(self.movie_id,self.guild_id):
             await interaction.response.send_message(f"We already watched this", ephemeral=True)
         else:
-            if database.add_watched_movie(self.movie_id, self.picker_id, self.date_watched, self.guild_id):
+            name = await get_name_from_tmdb_id(self.movie_id)
+            if database.add_watched_movie(self.movie_id,name, self.picker_id, self.date_watched, self.guild_id):
                 await interaction.response.send_message(f"Movie with ID -'{self.movie_id}' added successfully!", ephemeral=True)
             else:
                 await interaction.response.send_message(f"Failed to add movie - CHECK WHY", ephemeral=True)
@@ -467,7 +468,7 @@ async def manual_add_movie(ctx, movie_id,picked_by_user : discord.Member,date_wa
         date_watched_obj = datetime.strptime(date_watched, '%Y-%m-%d')
         view = ConfirmManualAdd(movie_id, picked_by_user, date_watched_obj, guild_id)
         await ctx.respond(
-            f"Are you sure you want to add '{get_name_from_tmdb_id(movie_id)}' as watched on {date_watched}?",
+            f"Are you sure you want to add '{await get_name_from_tmdb_id(movie_id)}' as watched on {date_watched}?",
             view=view,
             ephemeral=True
         )
@@ -505,12 +506,12 @@ async def skip_current_picker(ctx):
     else:
         await ctx.respond(f"No manual set users, default order is last to pick, picks now", ephemeral=True)
 
-def get_name_from_tmdb_id(tmdb_id):
-    url = f"https://api.themoviedb.org/3/movie/{TMDB_TOKEN}"
-    
+async def get_name_from_tmdb_id(tmdb_id):
+    url = f"https://api.themoviedb.org/3/movie/{tmdb_id}?api_key={TMDB_TOKEN}"
     response = requests.get(url)
     
     if response.status_code == 200:
+        print("got movie name")
         # Parse the JSON response
         data = response.json()
         movie_name = data.get("title")  # Get the movie title
